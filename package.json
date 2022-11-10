@@ -1,5 +1,5 @@
 {
-  "name": "@cremafinance/crema-sdk-v2",
+  "name": "@jup-ag/crema-sdk-v2",
   "version": "2.1.0",
   "scripts": {
     "idl:generate": "./scripts/parse-idls.sh && ./scripts/generate-idl-types.sh",
