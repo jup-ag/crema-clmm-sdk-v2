@@ -48,5 +48,8 @@
   "files": [
     "dist/**"
   ],
+  "typings": "dist/esm/index.d.ts",
+  "main": "dist/esm/index.js",
+  "module": "dist/esm/index.js",
   "packageManager": "yarn@3.2.2"
 }
