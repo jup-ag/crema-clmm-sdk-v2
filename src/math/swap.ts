@@ -4,14 +4,32 @@ import BN from "bn.js";
 import type { SwapInput } from "../ix";
 import { MathUtil, U64_MAX, ZERO } from "../math/utils";
 import type { AccountFetcher } from "../network/fetcher";
-import type { TickArray } from "../types";
-import type { ClmmpoolData } from "../types/clmmpool";
+import type { TickArray } from '../types';
 import * as constants from "../types/constants";
-import { PDAUtil, TickUtil } from "../utils";
-import { SwapDirection, TokenType } from "../utils/types";
-import { ClmmPoolUtil } from "./clmm";
+import { PDAUtil, TickUtil } from '../utils';
 import type { Percentage } from "./percentage";
-import { adjustForSlippage } from "./position";
+
+
+/**
+ * Adjust the amount of token A or token B to swap for in a swap to account for slippage.
+ * 
+ * @param n - The amount of token A or token B to swap for.
+ * @param numerator - The numerator of the slippage percentage.
+ * @param denominator - The denominator of the slippage percentage.
+ * @param adjustUp - Adjust the amount up or down.
+ * @returns The adjusted amount of token A or token B to swap for.
+ */
+ export function adjustForSlippage(
+  n: BN,
+  { numerator, denominator }: Percentage,
+  adjustUp: boolean
+  ): BN {
+  if (adjustUp) {
+      return n.mul(denominator.add(numerator)).div(denominator);
+  } else {
+      return n.mul(denominator).div(denominator.add(numerator));
+  }
+  }
 
 export class SwapUtils {
   /**
@@ -32,29 +50,6 @@ export class SwapUtils {
    */
   static getDefaultOtherAmountThreshold(amountSpecifiedIsInput: boolean): BN {
     return amountSpecifiedIsInput ? ZERO : U64_MAX;
-  }
-
-  /**
-   * Given the intended token mint to swap, return the swap direction of a swap for a Clmmpool
-   * 
-   * @param pool The Clmmpool to evaluate the mint against
-   * @param swapTokenMint The token mint PublicKey the user bases their swap against
-   * @param swapTokenIsInput Whether the swap token is the input token. (similar to amountSpecifiedIsInput from swap Ix)
-   * @returns The direction of the swap given the swapTokenMint. undefined if the token mint is not part of the trade pair of the pool.
-   */
-  static getSwapDirection(
-    pool: ClmmpoolData,
-    swapTokenMint: PublicKey,
-    swapTokenIsInput: boolean
-  ): SwapDirection | undefined {
-    const tokenType = ClmmPoolUtil.getTokenType(pool, swapTokenMint);
-    if (!tokenType) {
-      return undefined;
-    }
-
-    return (tokenType === TokenType.TokenA) === swapTokenIsInput
-      ? SwapDirection.AtoB
-      : SwapDirection.BtoA;
   }
 
   /**

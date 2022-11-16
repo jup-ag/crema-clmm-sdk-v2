@@ -1,9 +1,9 @@
 {
   "extends": "../tsconfig-base.json",
   "compilerOptions": {
-    "composite": true
+    "esModuleInterop": true
   },
-  "include": ["./**/*","./**/*.json","tests/", "../tests/sim-swap.test.ts"],
+  "include": ["./**/*", "./**/*.json", "tests/", "../tests/sim-swap.test.ts"],
   "exclude": ["cli/"],
   "typedocOptions": {
     "entryPoints": ["index.ts"],
