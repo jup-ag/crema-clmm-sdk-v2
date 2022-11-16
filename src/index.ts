@@ -1,7 +1,7 @@
 import Decimal from './utils/decimal';
 
 export * from './types/index';
-export { IDL } from './idls/clmmpool';
+export { IDL, clmmpool } from './idls/clmmpool';
 export { computeSwap, TickMath } from './math';
 export { PDAUtil, TickUtil } from './utils';
 
