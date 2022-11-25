@@ -1,13 +1,11 @@
-import { Address, BN } from "@project-serum/anchor";
 import { u64 } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
-
+import BN from "bn.js";
 import {
   ClmmpoolsError,
   MathErrorCode,
   TokenErrorCode,
 } from "../errors/errors";
-import { IncreaseLiquidityInput } from "../types";
 
 import type {
   ClmmpoolData,
@@ -23,11 +21,8 @@ import {
   TICK_ARRAY_MAP_MIN_BIT_INDEX,
   ZERO_BN,
 } from "../types/constants";
-import { AddressUtil, PDAUtil, TickUtil, TokenType } from "../utils";
-import Decimal from "../utils/decimal";
-import { Percentage } from "./percentage";
+import { PDAUtil } from "../utils";
 import { SwapUtils } from "./swap";
-import { TickMath } from "./tick";
 import { MathUtil, ONE, U64_MAX, ZERO } from "./utils";
 
 export type SwapStepResult = {
@@ -44,7 +39,6 @@ export type SwapResult = {
   refAmount: BN;
   nextSqrtPrice: BN;
   crossTickNum: number;
-  swapTickArrays: PublicKey[];
 };
 
 /**
@@ -408,9 +402,7 @@ export function computeSwap(
   byAmountIn: boolean,
   amount: BN,
   poolData: ClmmpoolData,
-  swapTicks: Array<TickData>,
-  clmmpool?: PublicKey,
-  tickArrayMap?: TickArrayMapData
+  swapTicks: Array<TickData>
 ): SwapResult {
   let remainerAmount = amount;
   let currentLiquidity = poolData.liquidity;
@@ -423,14 +415,10 @@ export function computeSwap(
     refAmount: ZERO,
     nextSqrtPrice: ZERO,
     crossTickNum: 0,
-    swapTickArrays: [],
   };
 
   let targetSqrtPrice, signedLiquidityChange;
   const sqrtPriceLimit = SwapUtils.getDefaultSqrtPriceLimit(aToB);
-
-  let firstTickIndex = 0;
-  let isFind = false;
 
   for (const tick of swapTicks) {
     if (aToB) {
@@ -448,11 +436,6 @@ export function computeSwap(
 
     if (tick === null) {
       continue;
-    }
-
-    if (isFind === false) {
-      firstTickIndex = tick.index;
-      isFind = true;
     }
 
     if (
@@ -503,21 +486,6 @@ export function computeSwap(
 
   swapResult.amountIn = swapResult.amountIn.add(swapResult.feeAmount);
   swapResult.nextSqrtPrice = currentSqrtPrice;
-
-  const startArrayIndex = TickUtil.getArrayIndex(
-    firstTickIndex,
-    poolData.tickSpacing
-  );
-
-  if (tickArrayMap && clmmpool) {
-    const swapTickArrays = getSwapTickArrays(
-      clmmpool,
-      aToB,
-      startArrayIndex,
-      tickArrayMap
-    );
-    swapResult.swapTickArrays = swapTickArrays;
-  }
 
   return swapResult;
 }
@@ -582,332 +550,6 @@ export function getSwapTickArrays(
   }
 
   return tickArrays;
-}
-
-/**
- * @category Clmm pool Util
- */
-export class ClmmPoolUtil {
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  private constructor() {}
-
-  /**
-   * Get token type.
-   *
-   * @param clmmpool - clmmpool data
-   * @param mint - mint address
-   * @returns token type
-   */
-  static getTokenType(
-    clmmpool: ClmmpoolData,
-    mint: PublicKey
-  ): TokenType | undefined {
-    if (clmmpool.tokenA.equals(mint)) {
-      return TokenType.TokenA;
-    } else if (clmmpool.tokenB.equals(mint)) {
-      return TokenType.TokenB;
-    }
-    return undefined;
-  }
-
-  /**
-   * Get fee rate.
-   *
-   * @param feeRate - clmmpool data
-   * @returns percentage
-   */
-  static getFeeRate(feeRate: number): Percentage {
-    return Percentage.fromFraction(feeRate, 1e6);
-  }
-
-  /**
-   * Update fee rate.
-   *
-   * @param clmm - clmmpool data
-   * @param fee_amount - fee Amount
-   * @param ref_rate - ref rate
-   * @param protocol_fee_rate - protocol fee rate
-   * @param is_token_A - is token A
-   * @returns percentage
-   */
-  static updateFeeRate(
-    clmm: ClmmpoolData,
-    fee_amount: BN,
-    ref_rate: number,
-    protocol_fee_rate: number,
-    is_token_A: boolean
-  ) {
-    const protocolFee = MathUtil.checkMulDivCeil(
-      fee_amount,
-      new BN(protocol_fee_rate),
-      FEE_RATE_DENOMINATOR,
-      64
-    );
-
-    const refFee =
-      ref_rate === 0
-        ? ZERO
-        : MathUtil.checkMulDivFloor(
-            fee_amount,
-            new BN(ref_rate),
-            FEE_RATE_DENOMINATOR,
-            64
-          );
-
-    const poolFee = fee_amount.mul(protocolFee).mul(refFee);
-
-    if (is_token_A) {
-      clmm.feeProtocolTokenA = clmm.feeProtocolTokenA.add(protocolFee);
-    } else {
-      clmm.feeProtocolTokenB = clmm.feeProtocolTokenB.add(protocolFee);
-    }
-
-    if (poolFee.eq(ZERO) || clmm.liquidity.eq(ZERO)) {
-      return { refFee, clmm };
-    }
-
-    const growthFee = poolFee.shln(64).div(clmm.liquidity);
-
-    if (is_token_A) {
-      clmm.feeGrowthGlobalA = clmm.feeGrowthGlobalA.add(growthFee);
-    } else {
-      clmm.feeGrowthGlobalB = clmm.feeGrowthGlobalB.add(growthFee);
-    }
-
-    return { refFee, clmm };
-  }
-
-  /**
-   * Get protocol fee rate.
-   *
-   * @param protocolFeeRate - protocol fee rate
-   * @returns percentage
-   */
-  static getProtocolFeeRate(protocolFeeRate: number): Percentage {
-    return Percentage.fromFraction(protocolFeeRate, 1e4);
-  }
-
-  /**
-   * Order mints.
-   *
-   * @param mintX - One mint
-   * @param mintY - Another mint
-   * @returns percentage
-   */
-  static orderMints(mintX: Address, mintY: Address): [Address, Address] {
-    let mintA, mintB;
-    if (
-      Buffer.compare(
-        AddressUtil.toPubKey(mintX).toBuffer(),
-        AddressUtil.toPubKey(mintY).toBuffer()
-      ) < 0
-    ) {
-      mintA = mintX;
-      mintB = mintY;
-    } else {
-      mintA = mintY;
-      mintB = mintX;
-    }
-
-    return [mintA, mintB];
-  }
-
-  /**
-   * Get token amount fron liquidity.
-   *
-   * @param liquidity - liquidity
-   * @param curSqrtPrice - Pool current sqrt price
-   * @param lowerPrice - lower price
-   * @param upperPrice - upper price
-   * @param roundUp - is round up
-   * @returns
-   */
-  static getTokenAmountFromLiquidity(
-    liquidity: BN,
-    curSqrtPrice: BN,
-    lowerPrice: BN,
-    upperPrice: BN,
-    roundUp: boolean
-  ): TokenAmounts {
-    const liq = new Decimal(liquidity.toString());
-    const curSqrtPriceStr = new Decimal(curSqrtPrice.toString());
-    const lowerPriceStr = new Decimal(lowerPrice.toString());
-    const upperPriceStr = new Decimal(upperPrice.toString());
-    let tokenA, tokenB;
-    if (curSqrtPrice.lt(lowerPrice)) {
-      tokenA = MathUtil.toX64_Decimal(liq)
-        .mul(upperPriceStr.sub(lowerPriceStr))
-        .div(lowerPriceStr.mul(upperPriceStr));
-
-      tokenB = new Decimal(0);
-    } else if (curSqrtPrice.lt(upperPrice)) {
-      tokenA = MathUtil.toX64_Decimal(liq)
-        .mul(upperPriceStr.sub(curSqrtPriceStr))
-        .div(curSqrtPriceStr.mul(upperPriceStr));
-
-      tokenB = MathUtil.fromX64_Decimal(
-        liq.mul(curSqrtPriceStr.sub(lowerPriceStr))
-      );
-    } else {
-      tokenA = new Decimal(0);
-      tokenB = MathUtil.fromX64_Decimal(
-        liq.mul(upperPriceStr.sub(lowerPriceStr))
-      );
-    }
-
-    if (roundUp) {
-      return {
-        tokenA: new u64(tokenA.ceil().toString()),
-        tokenB: new u64(tokenB.ceil().toString()),
-      };
-    } else {
-      return {
-        tokenA: new u64(tokenA.floor().toString()),
-        tokenB: new u64(tokenB.floor().toString()),
-      };
-    }
-  }
-
-  /**
-   * Estimate liquidity from token amounts
-   *
-   * @param cur_sqrt_price - current sqrt price.
-   * @param lower_tick - lower tick
-   * @param upper_tick - upper tick
-   * @param token_amount - token amount
-   * @return
-   */
-  static estimateLiquidityFromTokenAmounts(
-    cur_sqrt_price: BN,
-    lower_tick: number,
-    upper_tick: number,
-    token_amount: TokenAmounts
-  ): BN {
-    if (lower_tick > upper_tick) {
-      throw new Error("lower tick cannot be greater than lower tick");
-    }
-
-    const curr_tick = TickMath.sqrtPriceX64ToTickIndex(cur_sqrt_price);
-    const lowerSqrtPrice = TickMath.tickIndexToSqrtPriceX64(lower_tick);
-    const upperSqrtPrice = TickMath.tickIndexToSqrtPriceX64(upper_tick);
-
-    if (curr_tick < lower_tick) {
-      return estimateLiquidityForTokenA(
-        lowerSqrtPrice,
-        upperSqrtPrice,
-        token_amount.tokenA
-      );
-    } else if (curr_tick >= upper_tick) {
-      return estimateLiquidityForTokenB(
-        upperSqrtPrice,
-        lowerSqrtPrice,
-        token_amount.tokenB
-      );
-    } else {
-      const estimateLiquidityAmountA = estimateLiquidityForTokenA(
-        cur_sqrt_price,
-        upperSqrtPrice,
-        token_amount.tokenA
-      );
-
-      const estimateLiquidityAmountB = estimateLiquidityForTokenB(
-        cur_sqrt_price,
-        lowerSqrtPrice,
-        token_amount.tokenB
-      );
-
-      return BN.min(estimateLiquidityAmountA, estimateLiquidityAmountB);
-    }
-  }
-
-  /**
-   * Estimate liquidity and token amount from one amounts
-   *
-   * @param lower_tick - lower tick
-   * @param upper_tick - upper tick
-   * @param token_amount - token amount
-   * @param is_token_A - is token A
-   * @param round_up - is round up
-   * @param is_increase - is increase
-   * @param slippage - slippage percentage
-   * @param cur_sqrt_price - current sqrt price.
-   *
-   * @return IncreaseLiquidityInput
-   */
-  static estLiquidityAndTokenAmountFromOneAmounts(
-    lower_tick: number,
-    upper_tick: number,
-    token_amount: u64,
-    is_token_A: boolean,
-    round_up: boolean,
-    is_increase: boolean,
-    slippage: number,
-    cur_sqrt_price: BN
-  ): IncreaseLiquidityInput {
-    const current_tick = TickMath.sqrtPriceX64ToTickIndex(cur_sqrt_price);
-    const lowerSqrtPrice = TickMath.tickIndexToSqrtPriceX64(lower_tick);
-    const upperSqrtPrice = TickMath.tickIndexToSqrtPriceX64(upper_tick);
-
-    let liquidity;
-    if (current_tick <= lower_tick) {
-      if (!is_token_A) {
-        throw new Error("lower tick cannot calculate liquidity by tokenB");
-      }
-
-      liquidity = estimateLiquidityForTokenA(
-        lowerSqrtPrice,
-        upperSqrtPrice,
-        token_amount
-      );
-    } else if (current_tick >= upper_tick) {
-      if (is_token_A) {
-        throw new Error("upper tick cannot calculate liquidity by tokenA");
-      }
-
-      liquidity = estimateLiquidityForTokenB(
-        upperSqrtPrice,
-        lowerSqrtPrice,
-        token_amount
-      );
-    } else {
-      if (is_token_A) {
-        liquidity = estimateLiquidityForTokenA(
-          cur_sqrt_price,
-          upperSqrtPrice,
-          token_amount
-        );
-      } else {
-        liquidity = estimateLiquidityForTokenB(
-          cur_sqrt_price,
-          lowerSqrtPrice,
-          token_amount
-        );
-      }
-    }
-
-    const tokenAmounts = ClmmPoolUtil.getTokenAmountFromLiquidity(
-      liquidity,
-      cur_sqrt_price,
-      lowerSqrtPrice,
-      upperSqrtPrice,
-      round_up
-    );
-
-    let tokenMaxA, tokenMaxB;
-    if (is_increase) {
-      tokenMaxA = tokenAmounts.tokenA.mul(new u64(1 + slippage));
-      tokenMaxB = tokenAmounts.tokenB.mul(new u64(1 + slippage));
-    } else {
-      tokenMaxA = tokenAmounts.tokenA.mul(new u64(1 - slippage));
-      tokenMaxB = tokenAmounts.tokenB.mul(new u64(1 - slippage));
-    }
-
-    return {
-      tokenMaxA,
-      tokenMaxB,
-      liquidityAmount: liquidity,
-    };
-  }
 }
 
 /**
