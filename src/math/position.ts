@@ -234,13 +234,13 @@ export function getTokenBFromLiquidity(liquidity: BN, sqrtPrice0X64: BN, sqrtPri
  *
  * @returns
  */
-export async function getAllPositionsAddrFromPool(
+export async function getAllPositionsFromPool(
   connection: Connection,
   wallet: PublicKey,
   programId: PublicKey,
   fetcher: AccountFetcher,
   pool: PublicKey,
-) :Promise<PublicKey[]> {
+) {
   const metaplex = Metaplex.make(connection)
   .use(bundlrStorage());
 

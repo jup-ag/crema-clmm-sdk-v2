@@ -11,22 +11,22 @@ import { getTokenVaultAccountInfos } from "./util";
 import invariant from "tiny-invariant";
 import { PDAUtil } from "../utils/pda";
 import BN from "bn.js";
-export const INIT_KEY = new PublicKey("11111111111111111111111111111111");
 import {
   ClmmpoolIx, SwapInput
 } from "../ix";
-import { POSITION_NFT_UPDATE_AUTHORITY, TICK_ARRAY_MAP_MAX_BIT_INDEX, TICK_ARRAY_MAP_MIN_BIT_INDEX, TICK_ARRAY_SIZE,CLMMPOOL_PROGRAM_ID, ZERO_BN } from "../types/constants";
+import { POSITION_NFT_UPDATE_AUTHORITY, TICK_ARRAY_SIZE,CLMMPOOL_PROGRAM_ID, ZERO_BN } from "../types/constants";
 import { AddressUtil } from "../utils/address-util"
 
 import { TokenUtil } from "../utils/token-utils"
 import { TickArray, TokenInfo } from '../types/client-types';
 import { TickArrayUtil, TickUtil } from "../utils/tick";
 import { Decimal } from "decimal.js";
-import { computeSwap } from "../math/clmm";
+import { computeSwap, getSwapTickArrays } from "../math/clmm";
 import type { u64 } from "@solana/spl-token";
-import {  getAllPositionsAddrFromPool, MathUtil, PositionUtil, SwapUtils } from "../math";
+import { getAllPositionsFromPool, MathUtil, SwapUtils } from "../math";
 import { listRewarderInfosFromClmmpool, emissionsEveryDay } from "../utils";
 
+export const INIT_KEY = new PublicKey("11111111111111111111111111111111");
 export interface PendingOpenPosition {
   positionId: PublicKey;
   positionAccount: PublicKey;
@@ -454,58 +454,9 @@ export class ClmmpoolImpl implements Clmmpool {
       tickArrayMapAddr,
       true
     );
-    const tickArrays: PublicKey[] = [];
-    const array_index = TickUtil.getArrayIndex(this.data.currentTickIndex, this.data.tickSpacing);
-    invariant(
-      array_index < TICK_ARRAY_MAP_MAX_BIT_INDEX &&
-        array_index >= TICK_ARRAY_MAP_MIN_BIT_INDEX,
-      "Invalid tick array bit"
-    );
-    invariant(tickArrayMap !== null, "The tick array map is null");
 
-    let array_indexs: boolean[] = [];
-    for (let index = 0; index < 868; index++) {
-      let word: number = tickArrayMap.bitmap[index];
-      for (let shift = 0; shift < 8; shift++) {
-        if (((word >> shift) & 0x01) > 0) {
-          array_indexs.push(true);
-        } else {
-          array_indexs.push(false);
-        }
-      }
-    }
-
-    const array_count = 3;
-    if (a2b) {
-      for (
-        let index = array_index;
-        index >= TICK_ARRAY_MAP_MIN_BIT_INDEX;
-        index--
-      ) {
-        if (array_indexs[index]) {
-          const tickArray_i = PDAUtil.getTickArrayPDA(CLMMPOOL_PROGRAM_ID, clmmpool, index);
-          tickArrays.push(tickArray_i.publicKey);
-        }
-        if (tickArrays.length >= array_count) {
-          break;
-        }
-      }
-    } else {
-      for (
-        let index = array_index;
-        index < TICK_ARRAY_MAP_MAX_BIT_INDEX;
-        index++
-      ) {
-        if (array_indexs[index]) {
-          const tickArray_i = PDAUtil.getTickArrayPDA(CLMMPOOL_PROGRAM_ID, clmmpool, index);
-          tickArrays.push(tickArray_i.publicKey);
-        }
-        if (tickArrays.length >= array_count) {
-          break;
-        }
-      }
-    }
-
+    const startArrayIndex = TickUtil.getArrayIndex(this.data.currentTickIndex, this.data.tickSpacing);
+    const tickArrays = getSwapTickArrays(clmmpool, a2b, startArrayIndex, tickArrayMap!);
     return tickArrays;
   }
 
@@ -703,11 +654,13 @@ export class ClmmpoolImpl implements Clmmpool {
     }
   }
 
-  async posRewardersAmount(positionId: PublicKey) {
+  async posRewardersAmount(positionId: PublicKey, refresh: boolean = true, index: number = 0) {
     const currentTime = Date.parse(new Date().toString());
-    await this.updatePoolRewarder(new BN(currentTime));
+    if(index === 0){
+      await this.updatePoolRewarder(new BN(currentTime));
+    }
 
-    const position = await this.fetcher.getPosition(positionId, true);
+    const position = await this.fetcher.getPosition(positionId, refresh);
     const tickLower = await TickUtil.getTickDataFromIndex(this.fetcher, this.address, this.ctx.program.programId, position!.tickLowerIndex, this.data.tickSpacing);
     const tickUpper = await TickUtil.getTickDataFromIndex(this.fetcher, this.address, this.ctx.program.programId, position!.tickUpperIndex, this.data.tickSpacing);
     const rewardersInside = TickUtil.getRewardInTickRange(this.data, tickLower, tickUpper, position!.tickLowerIndex, position!.tickUpperIndex, this.growthGlobal);
@@ -732,12 +685,14 @@ export class ClmmpoolImpl implements Clmmpool {
   }
 
   async poolRewardersAmount() {
-    const positions = await getAllPositionsAddrFromPool(this.ctx.connection, this.ctx.wallet.publicKey, CLMMPOOL_PROGRAM_ID, this.fetcher, this.address);
+    const positions = await getAllPositionsFromPool(this.ctx.connection, this.ctx.wallet.publicKey, CLMMPOOL_PROGRAM_ID, this.fetcher, this.address);
     let rewarderAmount = [ZERO_BN, ZERO_BN, ZERO_BN];
+    let updatePoolIndex = 0;
     for(let i=0; i<positions.length; i++) {
       for(let j=0; j<3; j++) {
-        const posRewarderInfo = await this.posRewardersAmount(positions[i]);
+        const posRewarderInfo = await this.posRewardersAmount(positions[i], false, updatePoolIndex);
         rewarderAmount[j] = rewarderAmount[j].add(posRewarderInfo[j]);
+        updatePoolIndex+=1
       }
     }
 
@@ -787,7 +742,7 @@ export class ClmmpoolImpl implements Clmmpool {
   }
 
   async collectAllRewarderIxs(): Promise<TransactionEnvelope> {
-    const positions = await getAllPositionsAddrFromPool(this.ctx.connection, this.ctx.wallet.publicKey, CLMMPOOL_PROGRAM_ID, this.fetcher,this.address);    
+    const positions = await getAllPositionsFromPool(this.ctx.connection, this.ctx.wallet.publicKey, CLMMPOOL_PROGRAM_ID, this.fetcher,this.address);    
 
     const ixs = [];
     for(let i=0; i<3; i++) {

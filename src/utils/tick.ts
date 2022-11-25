@@ -1,13 +1,17 @@
-import type { PublicKey } from '@solana/web3.js';
-import { BN } from 'bn.js';
-import invariant from 'tiny-invariant';
+import type { PublicKey } from "@solana/web3.js";
+import { BN } from "bn.js";
+import invariant from "tiny-invariant";
 
-import type { ClmmpoolContext } from '../context';
-import { ZERO } from '../math/utils';
-import type { AccountFetcher } from '../network';
-import type { ClmmpoolData, TickArrayData, TickData } from '../types/clmmpool';
-import { MAX_TICK_INDEX, MIN_TICK_INDEX, TICK_ARRAY_SIZE } from '../types/constants';
-import { PDAUtil } from './pda';
+import type { ClmmpoolContext } from "../context";
+import { ZERO } from "../math/utils";
+import type { AccountFetcher } from "../network";
+import type { ClmmpoolData, TickArrayData, TickData } from "../types/clmmpool";
+import {
+  MAX_TICK_INDEX,
+  MIN_TICK_INDEX,
+  TICK_ARRAY_SIZE,
+} from "../types/constants";
+import { PDAUtil } from "./pda";
 
 /**
  * A collection of utility functions when interacting with a Tick.
@@ -132,7 +136,10 @@ export class TickUtil {
    * @retruns true or false
    */
   static isMinTickArray(array_index: number, tick_spacing: number): boolean {
-    return this.getStartTickIndex(array_index, tick_spacing) === this.getMinIndex(tick_spacing);
+    return (
+      this.getStartTickIndex(array_index, tick_spacing) ===
+      this.getMinIndex(tick_spacing)
+    );
   }
 
   /**
@@ -143,7 +150,10 @@ export class TickUtil {
    * @retruns true or false
    */
   static isMaxTickArray(array_index: number, tick_spacing: number): boolean {
-    return this.getEndTickIndex(array_index, tick_spacing) === this.getMaxIndex(tick_spacing);
+    return (
+      this.getEndTickIndex(array_index, tick_spacing) ===
+      this.getMaxIndex(tick_spacing)
+    );
   }
 
   /**
@@ -154,7 +164,11 @@ export class TickUtil {
    * @param tick_index - tick index
    * @retruns true or false
    */
-  static isInArray(array_index: number, tick_spacing: number, tick_index: number): boolean {
+  static isInArray(
+    array_index: number,
+    tick_spacing: number,
+    tick_index: number
+  ): boolean {
     return (
       tick_index >= this.getStartTickIndex(array_index, tick_spacing) &&
       tick_index <= this.getEndTickIndex(array_index, tick_spacing)
@@ -171,7 +185,9 @@ export class TickUtil {
    */
   static crossUpdate(tick: TickData, pool: ClmmpoolData, aToB: boolean) {
     const liquidity = pool.liquidity;
-    const signedLiquidityChange = aToB ? tick.liquidityNet.mul(new BN(-1)) : tick.liquidityNet;
+    const signedLiquidityChange = aToB
+      ? tick.liquidityNet.mul(new BN(-1))
+      : tick.liquidityNet;
     const currentLiquidity = signedLiquidityChange.gt(ZERO)
       ? liquidity.add(signedLiquidityChange)
       : liquidity.sub(signedLiquidityChange.abs());
@@ -194,12 +210,16 @@ export class TickUtil {
     clmmpool: PublicKey,
     programId: PublicKey,
     tick_index: number,
-    tick_spacing: number,
+    tick_spacing: number
   ): Promise<TickData> {
     const arrayIndex = this.getArrayIndex(tick_index, tick_spacing);
     const offset = this.getOffset(tick_index, tick_spacing);
-    const tickArrayAddress = PDAUtil.getTickArrayPDA(programId, clmmpool, arrayIndex).publicKey;
-    const tickArray = await fetcher.getTickArray(tickArrayAddress, true);
+    const tickArrayAddress = PDAUtil.getTickArrayPDA(
+      programId,
+      clmmpool,
+      arrayIndex
+    ).publicKey;
+    const tickArray = await fetcher.getTickArray(tickArrayAddress, false);
 
     const tickData = tickArray!.ticks[offset];
     return tickData!;
@@ -216,7 +236,9 @@ export class TickArrayUtil {
    * @param tickArrays - a list of TickArrayData or null objects from AccountFetcher.listTickArrays
    * @returns an array of array-index for the input tickArrays that requires initialization.
    */
-  static getUninitializedArrays(tickArrays: (TickArrayData | null)[]): number[] {
+  static getUninitializedArrays(
+    tickArrays: (TickArrayData | null)[]
+  ): number[] {
     return tickArrays
       .map((value, index) => {
         if (!value) {
@@ -241,11 +263,14 @@ export async function getAllTicks(
   ctx: ClmmpoolContext,
   programId: PublicKey,
   tick_spacing: number,
-  clmmpool: PublicKey,
+  clmmpool: PublicKey
 ): Promise<TickData[]> {
   const maxIndex = TickUtil.getMaxIndex(tick_spacing);
   const maxTickArrayIndex = TickUtil.getArrayIndex(maxIndex, tick_spacing);
-  const tickArrayMapAddress = PDAUtil.getTickArrayMapPDA(programId, clmmpool).publicKey;
+  const tickArrayMapAddress = PDAUtil.getTickArrayMapPDA(
+    programId,
+    clmmpool
+  ).publicKey;
 
   await ctx.fetcher.refreshAll();
   const map = await ctx.fetcher.getTickArrayMap(tickArrayMapAddress);
@@ -255,7 +280,11 @@ export async function getAllTicks(
     if (map?.bitmap[i] && map?.bitmap[i] !== 0) {
       for (let j = 0; j < 8; j++) {
         if ((map.bitmap[i]! & (1 << j)) !== 0) {
-          const tickArrayAddress = PDAUtil.getTickArrayPDA(programId, clmmpool, i * 8 + j).publicKey;
+          const tickArrayAddress = PDAUtil.getTickArrayPDA(
+            programId,
+            clmmpool,
+            i * 8 + j
+          ).publicKey;
           tickArrayAddresses.push(tickArrayAddress);
         }
       }
@@ -307,7 +336,10 @@ export async function getTicksPrice(ticks: TickData[]) {
  * @param tickSpacing
  * @returns
  */
-export function getNearestTickByCurrentTick(tickIndex: number, tickSpacing: number): number {
+export function getNearestTickByCurrentTick(
+  tickIndex: number,
+  tickSpacing: number
+): number {
   const mod = Math.abs(tickIndex) % tickSpacing;
   if (tickIndex > 0) {
     if (mod > tickSpacing / 2) {
