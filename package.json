@@ -1,6 +1,6 @@
 {
   "name": "@jup-ag/crema-sdk-v2",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "scripts": {
     "idl:generate": "./scripts/parse-idls.sh && ./scripts/generate-idl-types.sh",
     "lint:fix": "eslint --fix --ext .ts --ignore-path .gitignore .",
