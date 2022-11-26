@@ -21,7 +21,7 @@ import {
   TICK_ARRAY_MAP_MIN_BIT_INDEX,
   ZERO_BN,
 } from "../types/constants";
-import { PDAUtil } from "../utils";
+import { PDAUtil, TickUtil } from "../utils";
 import { SwapUtils } from "./swap";
 import { MathUtil, ONE, U64_MAX, ZERO } from "./utils";
 
@@ -39,6 +39,7 @@ export type SwapResult = {
   refAmount: BN;
   nextSqrtPrice: BN;
   crossTickNum: number;
+  swapTickArrays: PublicKey[];
 };
 
 /**
@@ -402,7 +403,9 @@ export function computeSwap(
   byAmountIn: boolean,
   amount: BN,
   poolData: ClmmpoolData,
-  swapTicks: Array<TickData>
+  swapTicks: Array<TickData>,
+  clmmpool?: PublicKey,
+  tickArrayMap?: TickArrayMapData
 ): SwapResult {
   let remainerAmount = amount;
   let currentLiquidity = poolData.liquidity;
@@ -415,10 +418,14 @@ export function computeSwap(
     refAmount: ZERO,
     nextSqrtPrice: ZERO,
     crossTickNum: 0,
+    swapTickArrays: [],
   };
 
   let targetSqrtPrice, signedLiquidityChange;
   const sqrtPriceLimit = SwapUtils.getDefaultSqrtPriceLimit(aToB);
+
+  let firstTickIndex = 0;
+  let isFind = false;
 
   for (const tick of swapTicks) {
     if (aToB) {
@@ -436,6 +443,11 @@ export function computeSwap(
 
     if (tick === null) {
       continue;
+    }
+
+    if (isFind === false) {
+      firstTickIndex = tick.index;
+      isFind = true;
     }
 
     if (
@@ -486,6 +498,21 @@ export function computeSwap(
 
   swapResult.amountIn = swapResult.amountIn.add(swapResult.feeAmount);
   swapResult.nextSqrtPrice = currentSqrtPrice;
+
+  if (tickArrayMap && clmmpool) {
+    const startArrayIndex = TickUtil.getArrayIndex(
+      firstTickIndex,
+      poolData.tickSpacing
+    );
+
+    const swapTickArrays = getSwapTickArrays(
+      clmmpool,
+      aToB,
+      startArrayIndex,
+      tickArrayMap
+    );
+    swapResult.swapTickArrays = swapTickArrays;
+  }
 
   return swapResult;
 }
