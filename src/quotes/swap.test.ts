@@ -35,10 +35,10 @@ describe("swap_with_partner", () => {
 
   it("test simulate swap", async () => {
     const clmmpoolAddr = new PublicKey(
-      "6D58SpesZdskrzTPDkDoEm2eexKfSUJRejEH76KTfvuH"
+      "7MPnn7k6uYSMcW7VvB8GUcEedLApmsAG1Fesfufv7rBk"
     );
     const clmmpoolData = await ctx.fetcher.getPool(clmmpoolAddr, true);
-    const tokenAmount = new u64(100000000);
+    const tokenAmount = new u64(1000000);
     const aToB = false;
     const byAmountIn = true;
       
